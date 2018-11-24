@@ -48,8 +48,7 @@ class Individual(object):
         Individual
             New Individual with the same chromosome and fitness values. 
         """
-        new = Individual()
-        new.chromosome = self.chromosome
+        new = Individual(self.chromosome)
         new.fitness = self.fitness
         return new
     
@@ -81,11 +80,11 @@ class Individual(object):
     def parse_chromosome(self, sep='.'):
         parameter_kwargs = {}
         for key in self.chromosome.keys():
-            if '.' in key:
+            if sep in key:
                 kwargs = Individual.__parse_chr_key(key.split(sep),
-                                                         self.chromosome[key])
+                                                    self.chromosome[key])
                 parameter_kwargs = Individual.__merge_dict(parameter_kwargs,
-                                                               kwargs)
+                                                           kwargs)
             else:
                 parameter_kwargs[key] = self.chromosome[key]
 
@@ -93,6 +92,7 @@ class Individual(object):
 
     @staticmethod
     def __parse_chr_key(keys, value):
+        """Parse embedded keys."""
         if len(keys) > 1:
             new_value = {keys[-1]: value}
             return Individual.__parse_chr_key(keys[:-1], new_value)
@@ -106,7 +106,11 @@ class Individual(object):
             if key in d2.keys():
                 if isinstance(d1[key], collections.MutableMapping) and\
                 isinstance(d2[key], collections.MutableMapping):
-                    new_dict[key] = {**d1[key], **d2[key]}
+                    if d1[key].keys() == d2[key].keys():
+                        new_dict[key] = Individual.__merge_dict(d1[key],
+                                                                d2[key])
+                    else:
+                        new_dict[key] = {**d1[key], **d2[key]}
             else:
                 new_dict[key] = d1[key]
         for key in d2.keys():
