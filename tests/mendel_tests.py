@@ -108,4 +108,4 @@ class TestGeneticAlgorithm:
                                      'exon2': 'Aa'},
                            'gene4': {'exon1': {'transcript1': 'GG',
                                                'transcript2': 'CC'}}}
-        self.ga = mendel.GeneticAlgorithm()
+        self.ga = mendel.GeneticAlgorithm(parameter_space)
