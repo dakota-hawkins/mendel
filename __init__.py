@@ -52,7 +52,7 @@ class Individual(object):
         new.fitness = self.fitness
         return new
     
-    def cross(self, partner):
+    def cross(self, partner, break_point=None):
         if not isinstance(partner, self.__class__):
             raise ValueError("`partner` must be an Individual.")
         # ensure individuals are comparable
@@ -61,7 +61,16 @@ class Individual(object):
                              "individuals do not match.")
         # randomly choose breakpoint for genetic cross
         genes = list(self.chromosome.keys())
-        break_point = np.random.choice(range(1, len(genes) - 1))
+        if isinstance(break_point, int):
+            if not 1 <= break_point < len(genes) - 1:
+                raise ValueError('`break_point` must fall between 1 and ' +
+                                 '{}. Got {}.'.format(len(genes) - 1,
+                                                      break_point))
+        elif break_point is None:
+            break_point = np.random.choice(range(1, len(genes) - 1))
+        else:
+            raise ValueError('Expected integer or None Type for `break_point.' +
+                             ' Got {}.'.format(type(break_point)))
 
         # create chromosome for offsprings
         child1 = {x: None for x in genes}
