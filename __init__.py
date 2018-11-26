@@ -155,6 +155,7 @@ class FitnessMixin(object):
 
         
     def score(self, individual):
+        individual.fitness = 1
         return 1
 
     @staticmethod
@@ -378,8 +379,8 @@ class GeneticAlgorithm(object):
             # calculate fitness for current population
             scores = np.array([0]*self.n)
             for i, each in enumerate(self.population):
-                fitness_function.score(each)
-                scores[i] = each.fitness
+                scores[i] = fitness_function.score(each)
+                
             # pass best performers to the next generation, best performers first
             ranked = np.argsort(-1 * scores)
             new_population += [self.population[i] for i in ranked[:n_elite]]
