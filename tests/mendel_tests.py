@@ -98,3 +98,16 @@ class TestIndividual(object):
         indi_set = set([self.individual, first_copy, second_copy,
                         second_individual, third_individual])
         assert len(indi_set) == 3
+
+class TestGeneticAlgorithm:
+
+    def setup(self):
+        parameter_space = {'gene1': {'exon1': 'aa',
+                                     'exon2': 'bb'},
+                           'gene2': 'cc',
+                           'gene3': {'exon1': {'transcript1': 'GG',
+                                               'transcript2': 'CC'},
+                                     'exon2': 'Aa'},
+                           'gene4': {'exon1': {'transcript1': 'GG',
+                                               'transcript2': 'CC'}}}
+        self.ga = mendel.GeneticAlgorithm()
