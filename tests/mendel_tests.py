@@ -1,7 +1,6 @@
 import pytest
 
 import mendel
-import numpy as np
 
 
 
@@ -39,13 +38,12 @@ class TestIndividual(object):
     def test_genetic_cross(self):
         """Test cross between individuals."""
         # set seed for expected breakpoint at i = 0
-        np.random.seed(0)
         key = {'gene1': 7,
                'gene2': 'AA',
                'gene3': 5,
                'gene4': 'gg'}
         other = mendel.Individual(key)
-        child1, child2 = self.individual.cross(other)
+        child1, child2 = self.individual.cross(other, break_point=1)
         expected_child1 = mendel.Individual({'gene1': 2, 'gene2': 'AA',
                                              'gene3': 5, 'gene4': 'gg'})
         expected_child2 = mendel.Individual({'gene1': 7, 'gene2': 'Aa',
