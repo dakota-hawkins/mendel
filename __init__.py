@@ -48,7 +48,7 @@ class Individual(object):
         Individual
             New Individual with the same chromosome and fitness values. 
         """
-        new = Individual(self.chromosome)
+        new = Individual(self.chromosome.copy())
         new.fitness = self.fitness
         return new
     
@@ -380,7 +380,7 @@ class GeneticAlgorithm(object):
             scores = np.array([0]*self.n)
             for i, each in enumerate(self.population):
                 scores[i] = fitness_function.score(each)
-                
+
             # pass best performers to the next generation, best performers first
             ranked = np.argsort(-1 * scores)
             new_population += [self.population[i] for i in ranked[:n_elite]]
