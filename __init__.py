@@ -3,8 +3,33 @@ import numpy as np
 from tqdm import tqdm
 
 class Individual(object):
+    """
+    Class for holding paramter values for individuals in a genetic algorithm.
+    
+    Attributes
+    ------
+    chromosome : dict
+    fitness : float
+    
+    Methods
+    -------
+    copy : create a copy of an Individual.
+    cross : cross to individual to create children.
+    parse_chromosome : return paramter names and values as key words.
+    """
+
 
     def __init__(self, chromosome=None):
+        """
+        Class for holding paramter values for individuals in a genetic algorithm.
+        
+        Parameters
+        ----------
+        chromosome : dict, optional
+            A dictionary containing parameter names with associated values. The
+            default is None, and an empty chromosome will be instantiated.
+        """
+
         self.chromosome = chromosome
         self.fitness = None
         # create a hash key by concatenating all key-values pairs as a single
@@ -53,6 +78,35 @@ class Individual(object):
         return new
     
     def cross(self, partner, break_point=None):
+        """
+        Generate children from two parent Individuals.
+        
+        Parameters
+        ----------
+        partner : Individual
+            Individual to cross with.
+        break_point : int, optional
+            Which key, when ordered as a list, to set as the break point for a
+            genetic cross. Value should be between 1 and `#genes - 1`. The
+            default is None, and the point will be randomly selected.
+        
+        Raises
+        ------
+        ValueError
+            If `partner` is not an Individual object.
+        ValueError
+            If `partner` and `self` do not have the same genes.
+        ValueError
+            If `break_point` is not between 1 and `len(self.chromosome) - 1`.
+        ValueError
+            If passed `break_point` is neither None nor an integer.
+        
+        Returns
+        -------
+        Individual
+            Mutated individual.
+        """
+
         if not isinstance(partner, self.__class__):
             raise ValueError("`partner` must be an Individual.")
         # ensure individuals are comparable
@@ -87,6 +141,21 @@ class Individual(object):
         return Individual(child1), Individual(child2)
 
     def parse_chromosome(self, sep='.'):
+        """
+        Unpack a chromosome
+        
+        Parameters
+        ----------
+        sep : str, optional
+            String value separating nested keys. The default is '.', which
+            assumes child keys are separated from parent keys by '.'.
+        
+        Returns
+        -------
+        dict
+            Dictionary of unpacked keys and values.
+        """
+
         parameter_kwargs = {}
         for key in self.chromosome.keys():
             if sep in key:
@@ -110,6 +179,7 @@ class Individual(object):
     
     @staticmethod
     def __merge_dict(d1, d2):
+        """Merge dictionaries together."""
         new_dict = {}
         for key in d1.keys():
             if key in d2.keys():
@@ -155,16 +225,92 @@ class FitnessMixin(object):
 
         
     def score(self, individual):
+        """
+        Skeleton method to evaluate the fitness of a given individual
+        
+        Parameters
+        ----------
+        individual : Individual
+            Individual to evaluate.
+        
+        Returns
+        -------
+        float
+            Fitness score.
+        """
         individual.fitness = 1
+
         return 1
 
     @staticmethod
     def individual_to_kwargs(individual):
+        """
+        Unpack an individual to parameter values.
+
+        Unpack an individual to parameter/kwarg values. Can be extended to
+        properly unpack problem-specific kwargs. Can often to be called to feed
+        parameters to `score()`.
+        
+        Parameters
+        ----------
+        individual : Individual
+            Individual whose parameters should be unpacked.
+        
+        Returns
+        -------
+        dict
+            Dictionary of parameter keys and values.
+        """
+
         param_dict = individual.parse_chromosome()
         return param_dict
     
 
 class GeneticAlgorithm(object):
+    """
+    Attributes
+    ----------
+    genomic_space : dict
+        Dictionary where each key represents a gene. Values are lists
+        of possible values (alleles), each gene can exhibit. Dictionary
+        is essentially a flattened version of `parameter_space`. 
+
+        Example
+            {'x.range': [0, 1, 2],
+                'x.domain': [3, 4, 5],
+                'y': [-1, -2, -3]}
+
+    population : list
+        List of current individuals.
+    pop_size : int, optional
+        Total population size. The default is 100.
+    generations : int, optional
+        Total number of generation to spawn. The default is 500.
+    mutation_rate : float, optional
+        Probability to induce random mutation after a cross. The default is
+        0.03, which will randomly mutate a single gene in a child in 3% of
+        the crosses.
+    elite_rate : float, optional
+        The percentage of individuals with the highest fitness scores to
+        retain at the end of a generation. Top performers will move onto the
+        next generation, without having their parameters changed. Default is
+        0.1, and 10% of individuals with the highest fitness scores 
+        will be kept.
+    drift_rate : float, optional
+        The percentage of random individual to introduce for each
+        generation. The default is 0.1, and the 10% least fit individuals
+        will be replaced by new, random individuals. This helps move the
+        parameters to a maximum, while also guarding against local maximas.
+    verbose : boolean, optional
+        Whether to print progress as generations proceed. Default is yes,
+        and a progess bar will be displayed.
+
+    Methods
+    -------
+        breed : perform the genetic algorithm search function.
+        mutate : mutate a gene in a given individual.
+        random_individual : return an individual with a random genotype.
+    """
 
     def __init__(self, parameter_space, pop_size=100, generations=500, 
                  mutation_rate=0.03, elite_rate=0.1, drift_rate=0.1,
@@ -206,29 +352,6 @@ class GeneticAlgorithm(object):
         verbose : boolean, optional
             Whether to print progress as generations proceed. Default is yes,
             and a progess bar will be displayed.
-
-        
-        Attributes
-        ----------
-            genomic_space : dict
-                Dictionary where each key represents a gene. Values are lists
-                of possible values (alleles), each gene can exhibit. Dictionary
-                is essentially a flattened version of `parameter_space`. 
-
-                Example
-                    {'x.range': [0, 1, 2],
-                     'x.domain': [3, 4, 5],
-                     'y': [-1, -2, -3]}
-
-            population : list
-                List of current individuals.
-
-        Methods
-        -------
-            breed:
-            mutate:
-            optimize:
-            random_individual:
         """
 
         self.__set_genomic_space(parameter_space)
@@ -366,6 +489,20 @@ class GeneticAlgorithm(object):
         return list(set(best_performers))
 
     def breed(self, fitness_function):
+        """
+        Breed individuals in a population to optimize parameter values.
+        
+        Parameters
+        ----------
+        fitness_function : FitnessMixin
+            An extension the FitnessMixin class, that should re-implement the
+            `score` function to evaluate fitness on a problem-specific basis.
+
+        Returns
+        -------
+            None
+        """
+
         n_elite = int(self.elite_rate * self.n)
         n_rand = int(self.drift_rate * self.n)
         n_pairs = int((self.n - n_elite - n_rand) / 2)
@@ -409,6 +546,24 @@ class GeneticAlgorithm(object):
             fitness_function.score(each)
 
     def mutate(self, individual):
+        """
+        Mutate an individual.
+
+        Mutates a single allele value in an individual's chromosome to a new
+        value for the same gene.
+        
+        Parameters
+        ----------
+        individual : Individual
+            Individual to mutate.
+        
+        Returns
+        -------
+        Individual
+            Mutated individual. Individual is directly mutated within the
+            function as well, so returning the object is just formality.
+        """
+
         # choose random 'gene' to change
         key = np.random.choice(list(self.genomic_space.keys()))
         # mutate current gene value to a new value. 
