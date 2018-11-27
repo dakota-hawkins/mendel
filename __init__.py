@@ -1,6 +1,12 @@
 import collections
+
+import matplotlib.pyplot as plt
+from matplotlib import colors
 import numpy as np
+from scipy import stats, misc, special
+
 from tqdm import tqdm
+
 
 class Individual(object):
     """
@@ -488,6 +494,20 @@ class GeneticAlgorithm(object):
         best_performers = [x for x in self.population if x.fitness == best]
         return list(set(best_performers))
 
+    def update_posterior(self, new_alpha, new_beta):
+        self.p_increase_.a = new_alpha
+        self.p_increase_.b = new_beta
+
+    def diagnostic_plot(self):
+        # bottom, two columns
+        ax1 = plt.subplot(212)
+
+        # top left
+        ax2 = plt.subplot(221)
+
+        # top right
+        ax3 = plt.subplot(222)
+
     def breed(self, fitness_function):
         """
         Breed individuals in a population to optimize parameter values.
@@ -502,16 +522,22 @@ class GeneticAlgorithm(object):
         -------
             None
         """
-
         n_elite = int(self.elite_rate * self.n)
         n_rand = int(self.drift_rate * self.n)
         n_pairs = int((self.n - n_elite - n_rand) / 2)
+        # model probability of successfully increasing the fitness over each
+        # iteration as a beta (conjugate prior of binomial)
+        self.p_increase_ = stats.beta(a=1, b=1)
+        self.p_space_ = np.linspace(0, 1, 1000)
+        self.fitness_avgs_ = [0]
+        alpha = 0
+        beta = 0
 
         # iterate through all generations, print progress bar if verbose
         iterator = range(self.generations)
         if self.verbose:
             iterator = tqdm(iterator)
-        for __ in iterator:
+        for i in iterator:
             new_population = []
             # calculate fitness for current population
             scores = np.array([0]*self.n)
@@ -520,6 +546,14 @@ class GeneticAlgorithm(object):
 
             # pass best performers to the next generation, best performers first
             ranked = np.argsort(-1 * scores)
+            current_fitness = np.mean(scores[ranked][:n_elite])
+            if current_fitness > self.fitness_avgs_[i]:
+                alpha += 1
+            else:
+                beta += 1
+            self.fitness_avgs_.append(current_fitness)
+            self.update_posterior(alpha, beta)
+            
             new_population += [self.population[i] for i in ranked[:n_elite]]
             # add genetic drift to population via random samples
             new_population += [self.random_individual() for i in range(n_rand)]
@@ -571,3 +605,51 @@ class GeneticAlgorithm(object):
                                   if individual.chromosome[key] != x])
         individual.chromosome[key] = value
         return individual
+
+
+def dynamic_p(i):
+    if i < 100:
+        return np.random.choice((1, 0), 1, p=(0.6, 0.4))[0]
+    else:
+        return 0
+
+def beta_binom(n, k, a, b):
+    gammaln = special.gammaln
+    out = gammaln(n + 1) + gammaln(k + a) + gammaln(n - k + b) + gammaln(a + b) \
+        - (gammaln(k + 1) + gammaln(n - k + 1) + gammaln(a) + gammaln(b)\
+           + gammaln(n + a + b))
+    return np.exp(out)
+
+def model_dynamic_p(n_iters=200, window_length=50):
+    dist = stats.beta(1, 1)
+    space = np.linspace(0, 1, 1000).reshape(-1, 1)
+    pdfs = np.array([dist.pdf(space)]).reshape(-1, 1)
+    p_of_success = [0.5]
+    alpha = 1
+    beta = 1
+    fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2)
+    results = []
+    for i in range(2, n_iters + 2):
+        results.append(dynamic_p(i - 2))
+        start = max(0, i - window_length)
+        window = results[start:]
+        while 1 not in window and start > 0:
+            start -= 1
+            window = results[start:]
+        alpha = max(1, np.sum(window))
+        beta = max(1, len(window) - alpha)
+        dist = stats.beta(alpha, beta)
+        iters = np.arange(0, i)
+        norm = colors.Normalize(vmin=0, vmax=iters[-1])
+        plot_colors = plt.cm.ScalarMappable(norm=norm).to_rgba(iters)
+        pdfs = np.hstack((pdfs, dist.pdf(space)))
+        ax1.plot(space, pdfs[:, -1])
+        p_of_zero = beta_binom(len(window), 0, alpha, beta)
+        p_of_success.append(1 - p_of_zero)
+        
+        ax2.plot(space, dist.cdf(space))
+        plt.title('{} iterations'.format(i - 1))
+        plt.pause(0.01)
+    return dist, results
+        
+        
