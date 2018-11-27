@@ -1,5 +1,4 @@
 import pytest
-
 import mendel
 
 
@@ -97,15 +96,76 @@ class TestIndividual(object):
                         second_individual, third_individual])
         assert len(indi_set) == 3
 
-class TestGeneticAlgorithm:
+class TestGeneticAlgorithm(object):
 
     def setup(self):
-        parameter_space = {'gene1': {'exon1': 'aa',
-                                     'exon2': 'bb'},
-                           'gene2': 'cc',
-                           'gene3': {'exon1': {'transcript1': 'GG',
-                                               'transcript2': 'CC'},
-                                     'exon2': 'Aa'},
-                           'gene4': {'exon1': {'transcript1': 'GG',
-                                               'transcript2': 'CC'}}}
-        self.ga = mendel.GeneticAlgorithm(parameter_space)
+        self.a_s = ['aa', 'aA', 'Aa', 'AA']
+        self.b_s = ['bb', 'bB', 'Bb', 'BB']
+        self.c_s = ['cc', 'cC', 'Cc', 'CC']
+        self.g_s = ['gg', 'gG', 'Gg', 'GG']
+        input_space = {'gene1': {'exon1': self.a_s, 'exon2': self.b_s},
+                        'gene2': self.c_s,
+                        'gene3': {'exon1': {'transcript1': self.g_s,
+                                            'transcript2': self.c_s},
+                                  'exon2': self.a_s},
+                        'gene4': {'exon1': {'transcript1': self.g_s,
+                                            'transcript2': self.c_s}}}
+        self.ga = mendel.GeneticAlgorithm(input_space)
+
+    def test_genomic_space(self):
+
+        expected_space = {'gene1.exon1': self.a_s,
+                          'gene1.exon2': self.b_s,
+                          'gene2': self.c_s,
+                          'gene3.exon1.transcript1': self.g_s,
+                          'gene3.exon1.transcript2': self.c_s,
+                          'gene3.exon2': self.a_s,
+                          'gene4.exon1.transcript1': self.g_s,
+                          'gene4.exon1.transcript2': self.c_s}
+        self.ga.genomic_space == expected_space
+
+    def test_random_ind(self):
+        expected_space = {'gene1.exon1': self.a_s,
+                          'gene1.exon2': self.b_s,
+                          'gene2': self.c_s,
+                          'gene3.exon1.transcript1': self.g_s,
+                          'gene3.exon1.transcript2': self.c_s,
+                          'gene3.exon2': self.a_s,
+                          'gene4.exon1.transcript1': self.g_s,
+                          'gene4.exon1.transcript2': self.c_s}
+        random = self.ga.random_individual()
+        assert all([random.chromosome[x] in expected_space[x]\
+                    for x in random.chromosome])
+
+    def test_best_performer_single_best(self):
+        self.ga.generations = 1
+        # fitness mixin returns 1 for all fitness scores
+        score_fitness = mendel.FitnessMixin()
+        self.ga.breed(score_fitness)
+        self.ga.population[0].fitness = 2
+        top = self.ga.best_performer()
+        assert self.ga.population[0] == top[0]
+
+    def test_best_performer_multiple_best(self):
+        self.ga.generations = 1
+        # fitness mixin returns 1 for all fitness scores
+        score_fitness = mendel.FitnessMixin()
+        self.ga.breed(score_fitness)
+        self.ga.population[0].fitness = 2
+        idx = 1
+        flag = False
+        while idx < self.ga.n - 1 and not flag:
+            if self.ga.population[0] != self.ga.population[idx]:
+                flag = True
+            idx += 1
+        self.ga.population[idx].fitness = 2
+        top = self.ga.best_performer()
+        assert self.ga.population[0] in top and self.ga.population[idx] in top
+
+    def test_mutate(self):
+        indi = self.ga.random_individual()
+        old_indi = indi.copy()
+        mutated = self.ga.mutate(indi)
+        assert old_indi != mutated
+    
+                    
