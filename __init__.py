@@ -609,7 +609,7 @@ class GeneticAlgorithm(object):
 
 def dynamic_p(i):
     if i < 100:
-        return np.random.choice((1, 0), 1, p=(0.6, 0.4))[0]
+        return np.random.choice((1, 0), 1, p=(0.3, 0.7))[0]
     else:
         return 0
 
@@ -620,36 +620,49 @@ def beta_binom(n, k, a, b):
            + gammaln(n + a + b))
     return np.exp(out)
 
-def model_dynamic_p(n_iters=200, window_length=50):
+def model_dynamic_p(n_iters=200, window_length=50, px_upper=0.05,
+                    cdf_limit=0.98):
     dist = stats.beta(1, 1)
     space = np.linspace(0, 1, 1000).reshape(-1, 1)
     pdfs = np.array([dist.pdf(space)]).reshape(-1, 1)
+    cdfs = np.array([dist.cdf(space)]).reshape(-1, 1)
     p_of_success = [0.5]
     alpha = 1
     beta = 1
     fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2)
+    ax1.set_ylabel('pdf(x)')
+    ax2.set_ylabel('cdf(x)')
+    ax1.set_xlabel('x')
+    ax2.set_xlabel('x')
     results = []
+    norm = colors.Normalize(vmin=0, vmax=n_iters)
+    percent_cutoff = np.where(space >= px_upper)[0][0]
+    last_hit = 0
     for i in range(2, n_iters + 2):
         results.append(dynamic_p(i - 2))
-        start = max(0, i - window_length)
+        if results[-1] == 1:
+            last_hit = i - 1
+        start = max(0, min(last_hit, i - window_length))
         window = results[start:]
-        while 1 not in window and start > 0:
-            start -= 1
-            window = results[start:]
+        # while 1 not in window and start > 0:
+        #     start -= 1
+        #     window = results[start:]
         alpha = max(1, np.sum(window))
         beta = max(1, len(window) - alpha)
         dist = stats.beta(alpha, beta)
         iters = np.arange(0, i)
-        norm = colors.Normalize(vmin=0, vmax=iters[-1])
-        plot_colors = plt.cm.ScalarMappable(norm=norm).to_rgba(iters)
+        plot_colors = plt.cm.ScalarMappable(norm=norm).to_rgba(i)
         pdfs = np.hstack((pdfs, dist.pdf(space)))
-        ax1.plot(space, pdfs[:, -1])
+        ax1.plot(space, pdfs[:, -1], color=plot_colors, alpha=0.5)
         p_of_zero = beta_binom(len(window), 0, alpha, beta)
         p_of_success.append(1 - p_of_zero)
-        
-        ax2.plot(space, dist.cdf(space))
-        plt.title('{} iterations'.format(i - 1))
+        cdf = dist.cdf(space)
+        ax2.plot(space, cdf, color=plot_colors, alpha=0.5)
+        fig.suptitle('{} iterations '.format(i - 1)
+                     + r'($\alpha =$ {}, $\beta =$ {})'.format(alpha,beta))
         plt.pause(0.01)
+        if cdf[percent_cutoff] > cdf_limit:
+            break
     return dist, results
         
         
