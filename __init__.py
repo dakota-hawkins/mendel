@@ -494,19 +494,34 @@ class GeneticAlgorithm(object):
         best_performers = [x for x in self.population if x.fitness == best]
         return list(set(best_performers))
 
-    def update_posterior(self, new_alpha, new_beta):
-        self.p_increase_.a = new_alpha
-        self.p_increase_.b = new_beta
+    def update_posterior(self, increases, no_increases, n_generations):
+        alpha = weight_results(np.array(increases),
+                               n_generations * self.zero_point)
+        beta = weight_results(np.array(no_increases),
+                              n_generations * self.zero_point)
+        self.p_increase_ = stats.beta(a=alpha, b=beta)
 
-    def diagnostic_plot(self):
-        # bottom, two columns
-        ax1 = plt.subplot(212)
+    def __initialize_diagnostic_plot(self):
+        ax1 = plt.subplot(221) # top left
+        ax2 = plt.subplot(222) # top right
+        ax3 = plt.subplot(212) # bottom row
+        ax1.set_ylabel('pdf(x)')
+        ax2.set_ylabel('cdf(x)')
+        ax1.set_xlabel('x')
+        ax2.set_xlabel('x')
+        ax3.set_ylabel('$p($increase$)$')
+        ax3.set_xlabel('generation')
+        
+        norm = colors.Normalize(vmin=0, vmax=self.generations)
+        scalar_map = plt.cm.ScalarMappable(norm=norm)
+        scalar_map._A = []
+        plt.colorbar(scalar_map, ax=ax2)
+        return (ax1, ax2, ax3)
 
-        # top left
-        ax2 = plt.subplot(221)
+    def __update_diagnostic_plot(self, ax1, ax2, ax3):
 
-        # top right
-        ax3 = plt.subplot(222)
+        return (ax1, ax2, ax3)
+
 
     def breed(self, fitness_function):
         """
@@ -529,31 +544,42 @@ class GeneticAlgorithm(object):
         # iteration as a beta (conjugate prior of binomial)
         self.p_increase_ = stats.beta(a=1, b=1)
         self.p_space_ = np.linspace(0, 1, 1000)
+        self.zero_point_ = 0.66
         self.fitness_avgs_ = [0]
-        alpha = 0
-        beta = 0
-
+        increases = [] # track generations where fitness increases occurr
+        no_increases = [] # track generations where no fitness increases occur
+        pdfs = [] # track pdfs of p(increase) in verbose mode
+        p_of_increase = [] # track p(increase)
         # iterate through all generations, print progress bar if verbose
         iterator = range(self.generations)
         if self.verbose:
+            x = np.arange(0, 1, 0.001)
+            pdfs.append(self.p_increase_.pdf(x))
             iterator = tqdm(iterator)
-        for i in iterator:
+            p_of_increase.append(beta_binom(1, 0, self.p_increase_.a,
+                                            self.p_increase_.b))
+        i = 0
+        converged = False
+        while i < self.generations and not converged:
             new_population = []
             # calculate fitness for current population
             scores = np.array([0]*self.n)
             for i, each in enumerate(self.population):
                 scores[i] = fitness_function.score(each)
 
-            # pass best performers to the next generation, best performers first
+            # order fitness scores in decreasing order
             ranked = np.argsort(-1 * scores)
             current_fitness = np.mean(scores[ranked][:n_elite])
             if current_fitness > self.fitness_avgs_[i]:
-                alpha += 1
+                increases.append(i)
             else:
-                beta += 1
+                no_increases.append(i)
             self.fitness_avgs_.append(current_fitness)
-            self.update_posterior(alpha, beta)
-            
+            self.update_posterior(increases, no_increases, i + 1)
+            if self.verbose:
+                pdfs.app
+
+            # pass best performers to the next generation
             new_population += [self.population[i] for i in ranked[:n_elite]]
             # add genetic drift to population via random samples
             new_population += [self.random_individual() for i in range(n_rand)]
@@ -610,6 +636,10 @@ class GeneticAlgorithm(object):
 def dynamic_p(i):
     if i < 100:
         return np.random.choice((1, 0), 1, p=(0.3, 0.7))[0]
+    elif 100 <= i < 140:
+        return 0
+    elif 140 <= i < 200:
+        return np.random.choice((1, 0), 1, p=(0.6, 0.4))[0]
     else:
         return 0
 
@@ -620,48 +650,61 @@ def beta_binom(n, k, a, b):
            + gammaln(n + a + b))
     return np.exp(out)
 
-def model_dynamic_p(n_iters=200, window_length=50, px_upper=0.05,
+def weight_results(hits, zero_point):
+    weights = 1 / (1 + np.exp(-(hits - zero_point)))
+    return weights.sum()
+
+def model_dynamic_p(n_iters=300, window_length=50, px_upper=0.05,
                     cdf_limit=0.98):
+    min_generations = 50
     dist = stats.beta(1, 1)
     space = np.linspace(0, 1, 1000).reshape(-1, 1)
     pdfs = np.array([dist.pdf(space)]).reshape(-1, 1)
     cdfs = np.array([dist.cdf(space)]).reshape(-1, 1)
-    p_of_success = [0.5]
+    p_of_success = [beta_binom(1, 0, 1, 1)]
     alpha = 1
     beta = 1
-    fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2)
+    ax1 = plt.subplot(221) # top left
+    ax2 = plt.subplot(222) # top right
+    ax3 = plt.subplot(212) # bottom row
     ax1.set_ylabel('pdf(x)')
     ax2.set_ylabel('cdf(x)')
     ax1.set_xlabel('x')
     ax2.set_xlabel('x')
+    ax3.set_ylabel('$p($increase$)$')
+    ax3.set_xlabel('generation')
+    
     results = []
     norm = colors.Normalize(vmin=0, vmax=n_iters)
-    percent_cutoff = np.where(space >= px_upper)[0][0]
-    last_hit = 0
-    for i in range(2, n_iters + 2):
-        results.append(dynamic_p(i - 2))
-        if results[-1] == 1:
-            last_hit = i - 1
-        start = max(0, min(last_hit, i - window_length))
-        window = results[start:]
-        # while 1 not in window and start > 0:
-        #     start -= 1
-        #     window = results[start:]
-        alpha = max(1, np.sum(window))
-        beta = max(1, len(window) - alpha)
+    scalar_map = plt.cm.ScalarMappable(norm=norm)
+    scalar_map._A = []
+    plt.colorbar(scalar_map, ax=ax2)
+
+    successes = []
+    failures = []
+    for i in range(1, n_iters + 2):
+        result = dynamic_p(i - 1)
+        if result == 1:
+            successes.append(i - 1)
+        else:
+            failures.append(i - 1)
+        alpha = weight_results(np.array(successes), i * 0.66)
+        beta = weight_results(np.array(failures), i * 0.66)
         dist = stats.beta(alpha, beta)
-        iters = np.arange(0, i)
         plot_colors = plt.cm.ScalarMappable(norm=norm).to_rgba(i)
         pdfs = np.hstack((pdfs, dist.pdf(space)))
-        ax1.plot(space, pdfs[:, -1], color=plot_colors, alpha=0.5)
+        ax1.plot(space, pdfs[:, -1], color=plot_colors, alpha=0.25)
         p_of_zero = beta_binom(1, 0, alpha, beta)
         p_of_success.append(1 - p_of_zero)
+        print(p_of_success[-1])
         cdf = dist.cdf(space)
-        ax2.plot(space, cdf, color=plot_colors, alpha=0.5)
-        fig.suptitle('{} iterations '.format(i - 1)
-                     + r'($\alpha =$ {}, $\beta =$ {})'.format(alpha,beta))
+        ax2.plot(space, cdf, color=plot_colors, alpha=0.25)
+        plt.suptitle('{} iterations '.format(i - 1)
+                     + r'($\alpha =$ {:.2f}, $\beta =$ {:.2f})'.format(alpha,
+                                                                       beta))
+        ax3.plot(range(i + 1), p_of_success, c='#78DCE8', linewidth=1)
         plt.pause(0.01)
-        if cdf[percent_cutoff] > cdf_limit:
+        if p_of_success[-1] < 0.02 and i > min_generations:
             break
     return dist, results
         
