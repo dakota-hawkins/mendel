@@ -654,7 +654,7 @@ def model_dynamic_p(n_iters=200, window_length=50, px_upper=0.05,
         plot_colors = plt.cm.ScalarMappable(norm=norm).to_rgba(i)
         pdfs = np.hstack((pdfs, dist.pdf(space)))
         ax1.plot(space, pdfs[:, -1], color=plot_colors, alpha=0.5)
-        p_of_zero = beta_binom(len(window), 0, alpha, beta)
+        p_of_zero = beta_binom(1, 0, alpha, beta)
         p_of_success.append(1 - p_of_zero)
         cdf = dist.cdf(space)
         ax2.plot(space, cdf, color=plot_colors, alpha=0.5)
