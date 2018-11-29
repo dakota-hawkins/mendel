@@ -615,7 +615,7 @@ class GeneticAlgorithm(object):
                                               self.p_increase_.b)]
             if self.verbose:
                 self.x_ = np.arange(0, 1, 0.001)
-                self.pdf_ = self.p_increase_.pdf(x)
+                self.pdf_ = self.p_increase_.pdf(self.x_)
                 ax1, ax2, ax3, sm = self.__initialize_diagnostic_plot()
         # iterate through all generations, print progress bar if verbose
         iterator = range(self.generations)
