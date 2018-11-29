@@ -3,7 +3,7 @@ import collections
 import matplotlib.pyplot as plt
 from matplotlib import colors
 import numpy as np
-from scipy import stats, misc, special
+from scipy import stats, special
 
 from tqdm import tqdm
 
@@ -288,28 +288,56 @@ class GeneticAlgorithm(object):
 
     population : list
         List of current individuals.
-    pop_size : int, optional
+    pop_size : int
         Total population size. The default is 100.
-    generations : int, optional
+    generations : int
         Total number of generation to spawn. The default is 500.
-    mutation_rate : float, optional
+    mutation_rate : float
         Probability to induce random mutation after a cross. The default is
         0.03, which will randomly mutate a single gene in a child in 3% of
         the crosses.
-    elite_rate : float, optional
+    elite_rate : float
         The percentage of individuals with the highest fitness scores to
         retain at the end of a generation. Top performers will move onto the
         next generation, without having their parameters changed. Default is
         0.1, and 10% of individuals with the highest fitness scores 
         will be kept.
-    drift_rate : float, optional
+    drift_rate : float
         The percentage of random individual to introduce for each
         generation. The default is 0.1, and the 10% least fit individuals
         will be replaced by new, random individuals. This helps move the
         parameters to a maximum, while also guarding against local maximas.
-    verbose : boolean, optional
-        Whether to print progress as generations proceed. Default is yes,
-        and a progess bar will be displayed.
+    verbose : boolean
+        Whether to print progress as generations proceed.
+    estimate_converge : boolean
+        Whether to estimate convergence for possible early stoppage.
+        Convergence is estimated by estimating the probability the next
+        generation will lead to an increase in average fitness among elite
+        individuals. Convergence is met when this probability is below a
+        given threshold. 
+    p_threshold : float, optional
+        Minimum probability threshold for estimating convergence.
+    gen_min : int, optional
+        Minimum generations before convergence can be reached.
+    zero_point : float, optional
+        The percentile of number of generations that should act as a center
+        when calculating success/failure weights. The probability of increasing
+        fitness is modelled as a beta distribution as a conjugate prior to a
+        binomial distribution. Because the probability of increasing fitness
+        is dynamic, weighting successes/failures from the oldest generations
+        equally with successes/failures from newest generations is improper.
+        Therefore, success/failures are weighted using a sigmoid function with
+        their distances centered at a "zero point". Given 100 generation and
+        `zero_point=0.66`, this "zero point" will occurr at the 66th generation.
+        Letting :math:`i` be an index for generations, the weight of that
+        generation is calculated using the following formula:
+        .. math::
+            w_i = \frac{1}{1 + \exp{i - 66}}
+        This weight is then added to the appropiate :math:`\alpha` or
+        :math:`\beta` sum depending on whether fitness was increased or
+        maintained at generation :math:`i`. Increasing the value towards 1, will
+        weight newer measurement more heavily. The opposite is true for
+        decreasing the value toward 0.
 
     Methods
     -------
@@ -320,7 +348,8 @@ class GeneticAlgorithm(object):
 
     def __init__(self, parameter_space, pop_size=100, generations=500, 
                  mutation_rate=0.03, elite_rate=0.1, drift_rate=0.1,
-                 verbose=True,):
+                 verbose=True, estimate_convergence=True, p_threshold=0.02,
+                 gen_min=50, zero_point=0.66):
         """
         A class to optimize hyperparameters using a genetic algorithm.
         
@@ -357,13 +386,38 @@ class GeneticAlgorithm(object):
             parameters to a maximum, while also guarding against local maximas.
         verbose : boolean, optional
             Whether to print progress as generations proceed. Default is yes,
-            and a progess bar will be displayed.
+            and a progess bar will be displayed. If `estimate_convergence` is
+            also True, a plot of convergence will also be displayed.
+        estimate_converge : boolean, optional
+            Whether to estimate convergence for possible early stoppage.
+            Convergence is estimated by estimating the probability the next
+            generation will lead to an increase in average fitness among elite
+            individuals. Convergence is met when this probability is below a
+            given threshold. Default is True. 
+        p_threshold : float, optional
+            Minimum probability threshold for estimating convergence. Default is
+            0.02, and convergence will be assumed when the probability of an
+            increase in fitness in the next generation is below 0.02.
+        gen_min : int, optional
+            Minimum generations before convergence can be reached. Default is
+            50, and the model will not be assumed to be at convergence (even if 
+            `p(increase)` < `p_threshold`) until the set number of generations
+            has passed.
+        zero_point : float, optional
+            The percentile of number of generations that should act as a center
+            when calculating success/failure weights. Default is 0.66. Increase
+            toward 1 to increase the model's sensitivity, decrease to increase
+            robustness.
         """
 
         self.__set_genomic_space(parameter_space)
         self.__initial_population(pop_size)
         self.generations = generations
         self.mutation_rate = mutation_rate
+        self.estimate_convergence = estimate_convergence
+        self.p_threshold = p_threshold
+        self.gen_min = gen_min
+        self.zero_point = zero_point
         self.elite_rate = elite_rate
         self.drift_rate = drift_rate
         self.verbose = verbose
@@ -493,7 +547,7 @@ class GeneticAlgorithm(object):
         best = np.max(scores)
         best_performers = [x for x in self.population if x.fitness == best]
         return list(set(best_performers))
-
+    
     def update_posterior(self, increases, no_increases, n_generations):
         alpha = weight_results(np.array(increases),
                                n_generations * self.zero_point)
@@ -546,35 +600,30 @@ class GeneticAlgorithm(object):
         -------
             None
         """
-        # these will go to arguments
-        self.p_threshold = 0.02
-        self.zero_point = 0.66
-        self.n_min = 50
-
         n_elite = int(self.elite_rate * self.n)
         n_rand = int(self.drift_rate * self.n)
         n_pairs = int((self.n - n_elite - n_rand) / 2)
-        # model probability of successfully increasing the fitness over each
-        # iteration as a beta (conjugate prior of binomial)
-        self.p_increase_ = stats.beta(a=1, b=1)
-        self.p_space_ = np.linspace(0, 1, 1000)
-        self.zero_point_ = 0.66
-        self.fitness_avgs_ = [0]
-        increases = [] # track generations where fitness increases occurr
-        no_increases = [] # track generations where no fitness increases occur
-        # track p(increase) to estimate convergence
-        self.p_of_increase_ = [beta_binom(1, 0, self.p_increase_.a,
-                                    self.p_increase_.b)] 
+        if self.estimate_convergence:
+            # model probability of successfully increasing the fitness over each
+            # iteration as a beta (conjugate prior of binomial)
+            self.p_increase_ = stats.beta(a=1, b=1)
+            self.fitness_avgs_ = [0]
+            increases = [] # track generations where fitness increases occurr
+            no_increases = [] # track gens where fitness does not increase
+            # track p(increase) to estimate convergence
+            self.p_of_increase_ = [beta_binom(1, 0, self.p_increase_.a,
+                                              self.p_increase_.b)]
+            if self.verbose:
+                self.x_ = np.arange(0, 1, 0.001)
+                self.pdf_ = self.p_increase_.pdf(x)
+                ax1, ax2, ax3, sm = self.__initialize_diagnostic_plot()
         # iterate through all generations, print progress bar if verbose
         iterator = range(self.generations)
         if self.verbose:
-            self.x_ = np.arange(0, 1, 0.001)
-            self.pdf_ = self.p_increase_.pdf(x)
             iterator = tqdm(iterator)
-            ax1, ax2, ax3, sm = self.__initialize_diagnostic_plot()
+            
         i = 0
-        converged = False
-        while i < self.generations and not converged:
+        for i in iterator:
             new_population = []
             # calculate fitness for current population
             scores = np.array([0]*self.n)
@@ -583,20 +632,23 @@ class GeneticAlgorithm(object):
 
             # order fitness scores in decreasing order
             ranked = np.argsort(-1 * scores)
-            current_fitness = np.mean(scores[ranked][:n_elite])
-            if current_fitness > self.fitness_avgs_[i]:
-                increases.append(i)
-            else:
-                no_increases.append(i)
-            self.fitness_avgs_.append(current_fitness)
-            self.update_posterior(increases, no_increases, i + 1)
-            if self.verbose:
-                self.pdf_ = self.p_increase_.pdf(self.x_)
-                ax1, ax2, ax3 = self.__update_diagnostic_plot(ax1, ax2, ax3,
-                                                              sm, i)
-            if self.p_of_increase_[-1] < self.p_threshold and i > self.n_min:
-                converged = True
-                break
+            if self.estimate_convergence:
+                current_fitness = np.mean(scores[ranked][:n_elite])
+                if current_fitness > self.fitness_avgs_[i]:
+                    increases.append(i)
+                else:
+                    no_increases.append(i)
+                self.fitness_avgs_.append(current_fitness)
+                self.update_posterior(increases, no_increases, i + 1)
+                if self.verbose:
+                    self.pdf_ = self.p_increase_.pdf(self.x_)
+                    ax1, ax2, ax3 = self.__update_diagnostic_plot(ax1, ax2, ax3,
+                                                                  sm, i)
+                # probability of next generation below threshold
+                # -> likely converged, stop iteration 
+                if self.p_of_increase_[-1] < self.p_threshold and\
+                i > self.gen_min:
+                    break
             # pass best performers to the next generation
             new_population += [self.population[i] for i in ranked[:n_elite]]
             # add genetic drift to population via random samples
@@ -650,80 +702,13 @@ class GeneticAlgorithm(object):
         individual.chromosome[key] = value
         return individual
 
-
-def dynamic_p(i):
-    if i < 100:
-        return np.random.choice((1, 0), 1, p=(0.6, 0.4))[0]
-    elif 100 <= i < 140:
-        return 0
-    elif 140 <= i < 200:
-        return np.random.choice((1, 0), 1, p=(0.3, 0.7))[0]
-    else:
-        return 0
-
 def beta_binom(n, k, a, b):
     gammaln = special.gammaln
-    out = gammaln(n + 1) + gammaln(k + a) + gammaln(n - k + b) + gammaln(a + b) \
+    out = gammaln(n + 1) + gammaln(k + a) + gammaln(n - k + b) + gammaln(a + b)\
         - (gammaln(k + 1) + gammaln(n - k + 1) + gammaln(a) + gammaln(b)\
            + gammaln(n + a + b))
     return np.exp(out)
-
+        
 def weight_results(hits, zero_point):
     weights = 1 / (1 + np.exp(-(hits - zero_point)))
     return weights.sum()
-
-def model_dynamic_p(n_iters=300, window_length=50, px_upper=0.05,
-                    cdf_limit=0.98):
-    min_generations = 50
-    dist = stats.beta(1, 1)
-    space = np.linspace(0, 1, 1000).reshape(-1, 1)
-    pdfs = np.array([dist.pdf(space)]).reshape(-1, 1)
-    cdfs = np.array([dist.cdf(space)]).reshape(-1, 1)
-    p_of_success = [beta_binom(1, 0, 1, 1)]
-    alpha = 1
-    beta = 1
-    ax1 = plt.subplot(221) # top left
-    ax2 = plt.subplot(222) # top right
-    ax3 = plt.subplot(212) # bottom row
-    ax1.set_ylabel('pdf(x)')
-    ax2.set_ylabel('cdf(x)')
-    ax1.set_xlabel('x')
-    ax2.set_xlabel('x')
-    ax3.set_ylabel('$p($increase$)$')
-    ax3.set_xlabel('generation')
-    
-    results = []
-    norm = colors.Normalize(vmin=0, vmax=n_iters)
-    scalar_map = plt.cm.ScalarMappable(norm=norm)
-    scalar_map._A = []
-    plt.colorbar(scalar_map, ax=ax2)
-
-    successes = []
-    failures = []
-    for i in range(1, n_iters + 2):
-        result = dynamic_p(i - 1)
-        if result == 1:
-            successes.append(i - 1)
-        else:
-            failures.append(i - 1)
-        alpha = weight_results(np.array(successes), i * 0.66)
-        beta = weight_results(np.array(failures), i * 0.66)
-        dist = stats.beta(alpha, beta)
-        plot_colors = plt.cm.ScalarMappable(norm=norm).to_rgba(i)
-        pdfs = np.hstack((pdfs, dist.pdf(space)))
-        ax1.plot(space, pdfs[:, -1], color=plot_colors, alpha=0.25)
-        p_of_zero = beta_binom(1, 0, alpha, beta)
-        p_of_success.append(1 - p_of_zero)
-        print(p_of_success[-1])
-        cdf = dist.cdf(space)
-        ax2.plot(space, cdf, color=plot_colors, alpha=0.25)
-        plt.suptitle('{} iterations '.format(i - 1)
-                     + r'($\alpha =$ {:.2f}, $\beta =$ {:.2f})'.format(alpha,
-                                                                       beta))
-        ax3.scatter(i + 1, p_of_success[-1], c='#78DCE8', linewidth=1)
-        plt.pause(0.01)
-        if p_of_success[-1] < 0.02 and i > min_generations:
-            break
-    return dist, results
-        
-        
