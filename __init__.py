@@ -627,8 +627,8 @@ class GeneticAlgorithm(object):
             new_population = []
             # calculate fitness for current population
             scores = np.array([0]*self.n)
-            for i, each in enumerate(self.population):
-                scores[i] = fitness_function.score(each)
+            for j, each in enumerate(self.population):
+                scores[j] = fitness_function.score(each)
 
             # order fitness scores in decreasing order
             ranked = np.argsort(-1 * scores)
@@ -650,9 +650,9 @@ class GeneticAlgorithm(object):
                 i > self.gen_min:
                     break
             # pass best performers to the next generation
-            new_population += [self.population[i] for i in ranked[:n_elite]]
+            new_population += [self.population[j] for j in ranked[:n_elite]]
             # add genetic drift to population via random samples
-            new_population += [self.random_individual() for i in range(n_rand)]
+            new_population += [self.random_individual() for j in range(n_rand)]
             # remove poorest performers from selection
             selection = self.population[:self.n - n_rand]
             # convert fitness scores to probabilities for pairing selection
