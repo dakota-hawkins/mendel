@@ -549,10 +549,11 @@ class GeneticAlgorithm(object):
         return list(set(best_performers))
     
     def update_posterior(self, increases, no_increases, n_generations):
-        alpha = weight_results(np.array(increases),
-                               n_generations * self.zero_point)
-        beta = weight_results(np.array(no_increases),
-                              n_generations * self.zero_point)
+        zero_point = np.max((1, n_generations * self.zero_point))
+        alpha = weight_results(np.array(increases), zero_point)
+        beta = weight_results(np.array(no_increases), zero_point)
+        with open('alpha-beta.log', 'a') as f:
+            f.write("alpha: {}, beta: {}\n".format(alpha, beta))
         self.p_increase_ = stats.beta(a=alpha, b=beta)
         self.p_of_increase_.append(beta_binom(1, 0, alpha, beta))
 
@@ -608,11 +609,12 @@ class GeneticAlgorithm(object):
             # iteration as a beta (conjugate prior of binomial)
             self.p_increase_ = stats.beta(a=1, b=1)
             self.fitness_avgs_ = [0]
-            increases = [] # track generations where fitness increases occurr
-            no_increases = [] # track gens where fitness does not increase
+            # set first generation to both increase and decrease as uninformed
+            # "prior"
+            increases = [1] # track generations where fitness increases occurr
+            no_increases = [1] # track gens where fitness does not increase
             # track p(increase) to estimate convergence
-            self.p_of_increase_ = [beta_binom(1, 0, self.p_increase_.a,
-                                              self.p_increase_.b)]
+            self.p_of_increase_ = [beta_binom(1, 0, 1, 1)]
             if self.verbose:
                 self.x_ = np.arange(0, 1, 0.001)
                 self.pdf_ = self.p_increase_.pdf(self.x_)
@@ -622,7 +624,6 @@ class GeneticAlgorithm(object):
         if self.verbose:
             iterator = tqdm(iterator)
             
-        i = 0
         for i in iterator:
             new_population = []
             # calculate fitness for current population
@@ -635,19 +636,19 @@ class GeneticAlgorithm(object):
             if self.estimate_convergence:
                 current_fitness = np.mean(scores[ranked][:n_elite])
                 if current_fitness > self.fitness_avgs_[i]:
-                    increases.append(i)
+                    increases.append(i + 1)
                 else:
-                    no_increases.append(i)
+                    no_increases.append(i + 1)
                 self.fitness_avgs_.append(current_fitness)
                 self.update_posterior(increases, no_increases, i + 1)
                 if self.verbose:
                     self.pdf_ = self.p_increase_.pdf(self.x_)
                     ax1, ax2, ax3 = self.__update_diagnostic_plot(ax1, ax2, ax3,
-                                                                  sm, i)
+                                                                  sm, i + 2)
                 # probability of next generation below threshold
                 # -> likely converged, stop iteration 
                 if self.p_of_increase_[-1] < self.p_threshold and\
-                i > self.gen_min:
+                i + 1 > self.gen_min:
                     break
             # pass best performers to the next generation
             new_population += [self.population[j] for j in ranked[:n_elite]]
@@ -695,7 +696,9 @@ class GeneticAlgorithm(object):
         """
 
         # choose random 'gene' to change
-        key = np.random.choice(list(self.genomic_space.keys()))
+        mutable = [k for k, v in self.genomic_space.items()\
+                   if isinstance(v, (np.ndarray, list, set)) and len(v) > 1]
+        key = np.random.choice(mutable)
         # mutate current gene value to a new value. 
         value = np.random.choice([x for x in self.genomic_space[key]\
                                   if individual.chromosome[key] != x])
@@ -704,6 +707,8 @@ class GeneticAlgorithm(object):
 
 def beta_binom(n, k, a, b):
     gammaln = special.gammaln
+    with open('beta-binom.log', 'a') as f:
+        f.write('n: {}, k: {}, a: {}, b: {}\n'.format(n, k, a, b))
     out = gammaln(n + 1) + gammaln(k + a) + gammaln(n - k + b) + gammaln(a + b)\
         - (gammaln(k + 1) + gammaln(n - k + 1) + gammaln(a) + gammaln(b)\
            + gammaln(n + a + b))
