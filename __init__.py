@@ -552,8 +552,6 @@ class GeneticAlgorithm(object):
         zero_point = np.max((1, n_generations * self.zero_point))
         alpha = weight_results(np.array(increases), zero_point)
         beta = weight_results(np.array(no_increases), zero_point)
-        with open('alpha-beta.log', 'a') as f:
-            f.write("alpha: {}, beta: {}\n".format(alpha, beta))
         self.p_increase_ = stats.beta(a=alpha, b=beta)
         self.p_of_increase_.append(beta_binom(1, 0, alpha, beta))
 
@@ -707,8 +705,6 @@ class GeneticAlgorithm(object):
 
 def beta_binom(n, k, a, b):
     gammaln = special.gammaln
-    with open('beta-binom.log', 'a') as f:
-        f.write('n: {}, k: {}, a: {}, b: {}\n'.format(n, k, a, b))
     out = gammaln(n + 1) + gammaln(k + a) + gammaln(n - k + b) + gammaln(a + b)\
         - (gammaln(k + 1) + gammaln(n - k + 1) + gammaln(a) + gammaln(b)\
            + gammaln(n + a + b))
