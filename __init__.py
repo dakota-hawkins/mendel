@@ -1,6 +1,7 @@
 import collections
 
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 from matplotlib import colors
 import numpy as np
 from scipy import stats, special
@@ -556,9 +557,11 @@ class GeneticAlgorithm(object):
         self.p_of_increase_.append(beta_binom(1, 0, alpha, beta))
 
     def __initialize_diagnostic_plot(self):
-        ax1 = plt.subplot(221) # top left
-        ax2 = plt.subplot(222) # top right
-        ax3 = plt.subplot(212) # bottom row
+        fig = plt.figure(constrained_layout=True)
+        gs = GridSpec(2, 2, figure=fig)
+        ax1 = fig.add_subplot(gs[1, :])
+        ax2 = fig.add_subplot(gs[0, 0])
+        ax3 = fig.add_subplot(gs[0, 1])
         ax1.set_ylabel('pdf(x)')
         ax2.set_ylabel('cdf(x)')
         ax1.set_xlabel('x')
@@ -569,19 +572,21 @@ class GeneticAlgorithm(object):
         norm = colors.Normalize(vmin=0, vmax=self.generations)
         scalar_map = plt.cm.ScalarMappable(norm=norm)
         scalar_map._A = []
-        plt.colorbar(scalar_map, ax=ax2)
-        return (ax1, ax2, ax3, scalar_map)
+        plt.colorbar(scalar_map, ax=ax3)
+        self.ax1 = ax1
+        self.ax2 = ax2 
+        self.ax3 = ax3
+        self.sm = scalar_map
 
-    def __update_diagnostic_plot(self, ax1, ax2, ax3, scalar_map, generation):
-        ax1.plot(range(generation), self.fitness_avgs_)
-        ax2.plot(range(generation), self.p_of_increase_)
+    def __update_diagnostic_plot(self, generation):
+        self.ax1.plot(range(generation), self.fitness_avgs_)
+        self.ax2.plot(range(generation), self.p_of_increase_)
         plt.suptitle('{} iterations '.format(generation)
                      + r'($\alpha =$ {:.2f}, $\beta =$ {:.2f})'.format(
                           self.p_increase_.a, self.p_increase_.b))
-        ax3.plot(self.x_, self.pdf_, color=scalar_map.to_rgba(generation),
+        self.ax3.plot(self.x_, self.pdf_, color=self.sm.to_rgba(generation),
                  alpha=0.25)
         plt.pause(0.01)
-        return (ax1, ax2, ax3)
 
 
     def breed(self, fitness_function, n_min=None, p_threshold=None,
@@ -616,7 +621,7 @@ class GeneticAlgorithm(object):
             if self.verbose:
                 self.x_ = np.arange(0, 1, 0.001)
                 self.pdf_ = self.p_increase_.pdf(self.x_)
-                ax1, ax2, ax3, sm = self.__initialize_diagnostic_plot()
+                self.__initialize_diagnostic_plot()
         # iterate through all generations, print progress bar if verbose
         iterator = range(self.generations)
         if self.verbose:
@@ -641,8 +646,7 @@ class GeneticAlgorithm(object):
                 self.update_posterior(increases, no_increases, i + 1)
                 if self.verbose:
                     self.pdf_ = self.p_increase_.pdf(self.x_)
-                    ax1, ax2, ax3 = self.__update_diagnostic_plot(ax1, ax2, ax3,
-                                                                  sm, i + 2)
+                    self.__update_diagnostic_plot(i + 2)
                 # probability of next generation below threshold
                 # -> likely converged, stop iteration 
                 if self.p_of_increase_[-1] < self.p_threshold and\
