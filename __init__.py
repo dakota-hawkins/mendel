@@ -523,9 +523,14 @@ class GeneticAlgorithm(object):
             Individual with randomally selected values for
             `Individual.chromosome`. 
         """
-
-        chromosome = {key: np.random.choice(self.genomic_space[key])\
-                      for key in self.genomic_space}
+        chromosome = {}
+        for key, value in self.genomic_space.items():
+            if isinstance(value, (np.ndarray, list, set)):
+                chromosome[key] = np.random.choice(self.genomic_space[key])
+            elif isinstance(value, (str, int, float)):
+                chromosome[key] = value
+            else:
+                raise ValueError("Unexpected type: {}".format(type(value)))
         return Individual(chromosome)
 
     def best_performer(self):
@@ -553,38 +558,42 @@ class GeneticAlgorithm(object):
         zero_point = np.max((1, n_generations * self.zero_point))
         alpha = weight_results(np.array(increases), zero_point)
         beta = weight_results(np.array(no_increases), zero_point)
-        self.p_increase_ = stats.beta(a=alpha, b=beta)
-        self.p_of_increase_.append(beta_binom(1, 0, alpha, beta))
+        with open('alpha-beta.log', 'a') as f:
+            f.write('alpha: {}, beta: {}\n'.format(alpha, beta))
+        # self.p_increase_ = stats.beta(a=alpha, b=beta)
+        self.p_increase_.a = alpha
+        self.p_increase_.b = beta
+        with open('a-b.log', 'a') as f:
+            f.write('a: {}, b: {}\n'.format(self.p_increase_.a, self.p_increase_.b))
+        self.p_of_increase_.append(beta_binom(1, 1, alpha, beta))
 
     def __initialize_diagnostic_plot(self):
-        fig = plt.figure(constrained_layout=True)
-        gs = GridSpec(2, 2, figure=fig)
-        ax1 = fig.add_subplot(gs[1, :])
-        ax2 = fig.add_subplot(gs[0, 0])
-        ax3 = fig.add_subplot(gs[0, 1])
-        ax1.set_ylabel('pdf(x)')
-        ax2.set_ylabel('cdf(x)')
-        ax1.set_xlabel('x')
-        ax2.set_xlabel('x')
+        figure = plt.figure()
+        gs = GridSpec(2, 2, figure=figure)
+        ax1 = figure.add_subplot(gs[1, :])
+        ax2 = figure.add_subplot(gs[0, 0])
+        ax3 = figure.add_subplot(gs[0, 1])
+        ax1.set_ylabel('Average Fitness')
+        ax2.set_ylabel('$p($increase$)$')
+        ax1.set_xlabel('Generation')
+        ax2.set_xlabel('Generation')
         ax3.set_ylabel('$p($increase$)$')
-        ax3.set_xlabel('generation')
+        ax3.set_xlabel('x')
         
         norm = colors.Normalize(vmin=0, vmax=self.generations)
         scalar_map = plt.cm.ScalarMappable(norm=norm)
         scalar_map._A = []
         plt.colorbar(scalar_map, ax=ax3)
-        self.ax1 = ax1
-        self.ax2 = ax2 
-        self.ax3 = ax3
-        self.sm = scalar_map
+        return figure, scalar_map
 
-    def __update_diagnostic_plot(self, generation):
-        self.ax1.plot(range(generation), self.fitness_avgs_)
-        self.ax2.plot(range(generation), self.p_of_increase_)
+    def __update_diagnostic_plot(self, figure, scalar_map, generation):
+        axes = figure.axes
+        axes[0].plot(range(generation), self.fitness_avgs_)
+        axes[1].plot(range(generation), self.p_of_increase_)
         plt.suptitle('{} iterations '.format(generation)
                      + r'($\alpha =$ {:.2f}, $\beta =$ {:.2f})'.format(
                           self.p_increase_.a, self.p_increase_.b))
-        self.ax3.plot(self.x_, self.pdf_, color=self.sm.to_rgba(generation),
+        axes[2].plot(self.x_, self.pdf_, color=scalar_map.to_rgba(generation),
                  alpha=0.25)
         plt.pause(0.01)
 
@@ -617,11 +626,12 @@ class GeneticAlgorithm(object):
             increases = [1] # track generations where fitness increases occurr
             no_increases = [1] # track gens where fitness does not increase
             # track p(increase) to estimate convergence
-            self.p_of_increase_ = [beta_binom(1, 0, 1, 1)]
+            self.p_of_increase_ = [beta_binom(1, 1, 1, 1)]
             if self.verbose:
                 self.x_ = np.arange(0, 1, 0.001)
-                self.pdf_ = self.p_increase_.pdf(self.x_)
-                self.__initialize_diagnostic_plot()
+                self.pdf_ = stats.beta.pdf(self.x_, self.p_increase_.a,
+                                           self.p_increase_.b)
+                fig, sm = self.__initialize_diagnostic_plot()
         # iterate through all generations, print progress bar if verbose
         iterator = range(self.generations)
         if self.verbose:
@@ -646,11 +656,14 @@ class GeneticAlgorithm(object):
                 self.update_posterior(increases, no_increases, i + 1)
                 if self.verbose:
                     self.pdf_ = self.p_increase_.pdf(self.x_)
-                    self.__update_diagnostic_plot(i + 2)
+                    self.__update_diagnostic_plot(fig, sm, i + 2)
                 # probability of next generation below threshold
                 # -> likely converged, stop iteration 
+                print(self.p_increase_.a, self.p_increase_.b)
                 if self.p_of_increase_[-1] < self.p_threshold and\
                 i + 1 > self.gen_min:
+                    if self.verbose:
+                        iterator.close()
                     break
             # pass best performers to the next generation
             new_population += [self.population[j] for j in ranked[:n_elite]]
